@@ -1,0 +1,555 @@
+/* PACKAGE DEFINITION */
+
+create or replace package StudentRegSys as
+
+PROCEDURE show_details(Table_names IN varchar2,keys in varchar2,c_dbuser OUT SYS_REFCURSOR);
+procedure Find_Prerequisite_Requirement(p_code in mgandhi2.prerequisites.pre_dept_code%type, p_course# in mgandhi2.prerequisites.pre_course#%type,invalid_error OUT varchar2,c_dbuser OUT SYS_REFCURSOR);
+procedure Find_Student(Student_id in mgandhi2.students.B#%type,invalid_error OUT varchar2,c_dbuser OUT SYS_REFCURSOR);
+procedure Find_ClassDetails(Class_id in mgandhi2.classes.classid%type,invalid_error OUT varchar2,c_dbuser OUT SYS_REFCURSOR);
+function PrereqCourse(Studentid mgandhi2.enrollments.B#%type,Course_id varchar2) return number;
+function Student_Enrolled(s_id mgandhi2.Enrollments.B#%type,c_id mgandhi2.Enrollments.classid%type) return boolean;
+procedure Enroll_Student(Student_id IN mgandhi2.students.B#%type,Class_id IN mgandhi2.classes.classid%type,invalid_messages OUT varchar2);
+procedure Drop_Class(s_B# in mgandhi2.students.B#%type,c_classid in mgandhi2.classes.classid%type,invalid_error OUT varchar2);
+procedure Delete_Student(Student_id IN mgandhi2.students.B#%type,invalid_messages OUT varchar2);
+
+
+end;
+/
+show errors
+
+
+
+/* PACKAGE BODY */
+
+
+
+create or replace package body StudentRegSYS as
+
+
+PROCEDURE show_details(Table_names IN varchar2,keys in varchar2,c_dbuser OUT SYS_REFCURSOR)
+IS
+query_str varchar2(200);
+BEGIN
+
+	query_str:=' select * from '||Table_names||' order by '||keys;
+        OPEN c_dbuser FOR query_str;
+END;
+
+
+
+function PrereqCourse(Studentid mgandhi2.enrollments.B#%type,Course_id varchar2) return number
+is
+countRows number;
+counts number;
+status number:=1;
+query varchar2(1000):='';
+
+
+
+Begin
+
+		select count(*) into countRows from mgandhi2.prerequisites
+		start with pre_course# in (Select pre_course# from mgandhi2.prerequisites where dept_code||course#=Course_id)
+		connect by prior pre_course#=course#;
+
+		if(countRows=0) then 
+			status:=1;
+
+
+		else
+
+			
+			select count(*) into counts from mgandhi2.classes c,mgandhi2.enrollments e where e.classid=c.classid and e.B#=Studentid and c.dept_code||c.course# in(select pre_dept_code||pre_course# from prerequisites
+			start with pre_course# in (Select pre_course# from mgandhi2.prerequisites where dept_code||course#=Course_id)
+			connect by prior pre_course#=course#);
+			
+			if(counts=0) then
+				status:=2;
+				
+			else
+
+				status:=1;
+				
+				for X in (select e.classid as classid,NVL(e.lgrade,'No grade') as lgrade from mgandhi2.classes c,mgandhi2.enrollments e where e.classid=c.classid and e.B#=Studentid and c.dept_code||c.course# in
+				(select pre_dept_code||pre_course# from mgandhi2.prerequisites
+				start with pre_course# in (Select pre_course# from mgandhi2.prerequisites where dept_code||course#=Course_id)
+				connect by prior pre_course#=course#))
+
+				loop 
+					if(X.lgrade='No grade') then 
+						status:=2;
+						
+
+
+					end if;
+				end loop;
+
+				if(status=1) then 
+
+					select count(*) into countRows from  mgandhi2.grades g,mgandhi2.classes c,mgandhi2.enrollments e where e.lgrade=g.lgrade and nvl(g.ngrade,0)<2 and  e.classid=c.classid and e.B#=Studentid and c.dept_code||c.course# in
+					(select pre_dept_code||pre_course# from mgandhi2.prerequisites
+						start with pre_course# in (Select pre_course# from mgandhi2.prerequisites where dept_code||course#=Course_id)
+						connect by prior pre_course#=course#);
+
+				end if;
+
+				if(countRows>0) then
+
+					status:=3;
+				
+
+
+				end if;
+
+
+			end if;
+		end if;
+		return status ;
+
+end;
+
+procedure Find_Student(Student_id in mgandhi2.students.B#%type,invalid_error OUT varchar2,c_dbuser OUT SYS_REFCURSOR)
+IS
+B#_invalid exception;
+No_course exception;
+Countrow number;
+
+
+
+
+BEGIN
+
+select count(*) into Countrow from mgandhi2.Students where B#=Student_id; 
+
+	if(Countrow=0) then
+       		raise B#_invalid;
+	else
+		invalid_error:='';
+		select count(*) into Countrow from mgandhi2.Students s,mgandhi2.enrollments e,mgandhi2.classes c,mgandhi2.grades g where c.classid=e.classid and e.b#=s.B# and s.B#=Student_id and e.lgrade=g.lgrade;
+		if(Countrow=0) then
+			raise No_course;
+		else
+			invalid_error:='';
+			open c_dbuser for
+			select h.classid,h.dept_code,h.course#,h.sect#,h.year,h.Semester,lgrade,g.ngrade from (select c.classid,c.Dept_code,c.course#,c.sect#,c.year,c.Semester,e.lgrade from mgandhi2.Students s,mgandhi2.enrollments e,mgandhi2.classes c where c.classid=e.classid and e.b#=s.B# and s.B#=Student_id)h natural left join mgandhi2.grades g;
+	
+		end if;	
+	
+End if;
+	
+
+exception 
+	when B#_invalid then
+	invalid_error:='The B# is invalid';
+	when No_course then
+	invalid_error:='The Student '||Student_id||' has not taken any courses'; 	
+
+
+END;
+
+
+procedure Find_ClassDetails(Class_id in mgandhi2.classes.classid%type,invalid_error OUT varchar2,c_dbuser OUT SYS_REFCURSOR)
+IS
+classid_invalid exception;
+No_Student exception;
+Countrow number;
+
+
+
+
+BEGIN
+
+select count(*) into Countrow from mgandhi2.classes where classid=Class_id; 
+
+	if(Countrow=0) then
+       		raise classid_invalid;
+	else
+		invalid_error:='';
+		select count(*) into Countrow from mgandhi2.classes c,mgandhi2.Students s,mgandhi2.enrollments e,mgandhi2.courses c1 where e.classid=c.classid and s.B#=e.B# and c.course#=c1.course# and c.classid=Class_id;
+		if(Countrow=0) then
+			raise No_Student;
+		else
+			invalid_error:='';
+			open c_dbuser for
+			select s.B#,s.firstname,c.classid,c1.title from mgandhi2.classes c,mgandhi2.Students s,mgandhi2.enrollments e,mgandhi2.courses c1 where e.classid=c.classid and s.B#=e.B# and c.course#=c1.course# and c.classid=Class_id;
+	
+		end if;	
+	
+End if;
+	
+
+exception 
+	when classid_invalid then
+	invalid_error:='The classid is invalid';
+	when No_Student then
+	invalid_error:='No student has enrolled in the class '||Class_id; 	
+
+
+END;
+
+function Student_Enrolled(s_id mgandhi2.enrollments.B#%type,c_id mgandhi2.enrollments.classid%type) return boolean
+is
+lcount integer;
+begin
+select count(*) into lcount from mgandhi2.enrollments where B#=s_id and classid=c_id;
+return(lcount>0);
+END;
+
+
+procedure Enroll_Student(Student_id IN mgandhi2.Students.B#%type,Class_id IN mgandhi2.classes.classid%type,invalid_messages OUT varchar2)
+IS
+invalid_B# exception;
+invalid_classid exception;
+invalid_B#andClassid exception;
+class_full exception;
+Student_present exception;
+Student_overload exception;
+extra_class exception;
+Preq_exception exception;
+countB# number;
+countClassid number;
+class_size1 number;
+limit1 number;
+classrow mgandhi2.classes%rowtype;
+status boolean:=false;
+countRows number;
+courseid varchar2(40);
+
+BEGIN
+
+	Select count(*) into countB# from mgandhi2.Students where B#=Student_id;
+	select count(*) into countClassid from mgandhi2.classes where classid=Class_id;
+       
+	
+	if(countB#=0)then
+		raise invalid_B#;
+	elsif(countClassid=0) then
+		raise invalid_classid;
+	elsif(countB#=0 and countClassid=0) then
+		raise invalid_B#andClassid;
+	else
+		select class_size,limit into class_size1,limit1 from mgandhi2.classes where classid=Class_id;
+		if(student_enrolled(Student_id,Class_id)) then
+			raise Student_present;
+		
+		
+		elsif(class_size1>=limit1) then
+			raise class_full;
+		else
+		
+		 select dept_code||course# into courseid from mgandhi2.classes where classid=Class_id;     
+		countRows:=PrereqCourse(Student_id,courseid);
+		
+		if(countRows=2 or countRows=3) then
+		raise Preq_exception;
+	
+		
+	     	else
+		select count(*) into countRows from (select B#,e.classid,semester,year from mgandhi2.enrollments e,mgandhi2.classes c where e.classid=c.classid and B#=Student_id and (semester,year) in (Select semester,year from mgandhi2.classes where classid=Class_id));		
+		if(countRows=4)then 
+			raise extra_class;
+		elsif(countRows=3) then
+			insert into mgandhi2.enrollments values (student_id,Class_id,null);	
+			commit;
+			raise Student_overload;
+		else
+			insert into mgandhi2.enrollments values (Student_id,Class_id,null);
+			commit;					
+		end if;
+		
+		
+		end if;
+		end if;
+	end IF;
+
+exception 
+	when invalid_B# then
+	invalid_messages:='The B# is inavlid';
+	when invalid_classid then
+	invalid_messages:='The classid is not valid';
+	when class_full then
+	invalid_messages:='The class is full';
+	when invalid_B#andClassid then
+	invalid_messages:='The B# and classid is not valid';
+	when Student_present then
+	invalid_messages:='The student '||Student_id||' is already present '||Class_id; 
+	when extra_class then
+	invalid_messages:='Students cannot be enrolled in more than four mgandhi2.classes in the same semester';
+	when Student_overload then
+	invalid_messages:='You are overloaded';
+	when Preq_exception then
+	invalid_messages:='Prerequisite not satisfied';
+
+
+
+END;
+
+procedure Drop_Class(s_B# in mgandhi2.Students.B#%type,c_classid in mgandhi2.Classes.classid%type,invalid_error OUT varchar2)
+IS
+B#_invalid exception;
+Classid_invalid exception;
+No_match exception;
+pre_invalid exception;
+size_invalid exception;
+Last_class exception;
+countrow number;
+countoth number;
+x number;
+deptcode varchar2(200);
+y number;
+z number(3);
+a number;
+countB# number;
+
+BEGIN
+select count(*) into countrow from mgandhi2.students where B#=s_B#;
+select count(*) into countoth from mgandhi2.classes where classid=c_classid;
+
+	if(countrow=0) then
+	raise B#_invalid;
+ 	
+
+	elsif(countoth=0) then
+	raise Classid_invalid;
+ 	
+
+	else
+		select count(*) into x from mgandhi2.students s,classes c,enrollments e where s.B#=e.B# and c.classid=e.classid and s.B#=s_B# and c.classid=c_classid;
+	
+		select class_size into y from mgandhi2.classes where classid=c_classid;	
+
+		if(x=0) then
+			raise No_match;
+	 	end if;
+		
+		select count(*) into countB# from mgandhi2.enrollments where B#=s_B#;
+		if(countB#=1) then
+		Delete from mgandhi2.enrollments where B#=s_B# and classid=c_classid;
+				commit;
+		 raise Last_class;
+		end if;
+		
+		
+
+		select dept_code,course# into deptcode,z from mgandhi2.classes where classid=c_classid;
+	
+		select count(dept_code||course#) into a from mgandhi2.prerequisites START WITH pre_course#=z CONNECT BY PRIOR course#=pre_course#;
+
+
+
+		if(a>0) then
+		
+		
+			select count(*) into countrow from  mgandhi2.classes c,mgandhi2.enrollments e where e.classid=c.classid and e.B#=s_B# and c.dept_code||c.course# in
+			(select dept_code||course# from mgandhi2.prerequisites START WITH pre_course#=221 CONNECT BY PRIOR course#=pre_course#);
+			
+			if(countrow>0) then
+				raise pre_invalid;
+
+			else 
+				if(y=1) then
+				Delete from mgandhi2.enrollments where B#=s_B# and classid=c_classid;
+				commit;				
+				raise size_invalid;
+
+				else
+			
+				Delete from mgandhi2.enrollments where B#=s_B# and classid=c_classid;
+				commit;
+				end if;
+			end if;
+		else 
+			Delete from mgandhi2.enrollments where B#=s_B# and classid=c_classid;
+				commit;
+			
+		end if;
+
+	end if;
+exception
+	when B#_invalid then
+	invalid_error:='The B# is not valid';
+
+	when Classid_invalid then
+	invalid_error:='The classid is not valid';
+	
+	when No_match then
+	invalid_error:='The student is not enrolled for that class so cannot delete';
+
+	when pre_invalid then
+	invalid_error:='Cannot delete the course as this course is a prerequisites for other courses';
+
+	when size_invalid then
+	invalid_error:='There will be no students left in this class if u delete this ';
+
+	when Last_class then
+	invalid_error:='This student is 
+not enrolled in any classes';
+END;
+
+
+procedure Delete_Student(Student_id IN mgandhi2.Students.B#%type,invalid_messages OUT varchar2)
+IS
+invalid_B# exception;
+
+countRows number;
+courseid varchar2(40);
+
+BEGIN
+
+	Select count(*) into countRows from mgandhi2.Students where B#=Student_id;
+	       
+	
+	if(countRows=0)then
+		raise invalid_B#;
+	else
+		Delete from mgandhi2.Students where B#=Student_id;
+		commit;
+	end IF;
+
+exception 
+	when invalid_B# then
+	invalid_messages:='The B# is inavlid';
+	
+
+
+END;
+
+procedure Find_Prerequisite_Requirement(p_code in mgandhi2.prerequisites.pre_dept_code%type, p_course# in mgandhi2.prerequisites.pre_course#%type,invalid_error OUT varchar2,c_dbuser OUT SYS_REFCURSOR)
+IS
+Course_invalid exception;
+x number;
+BEGIN
+select count(*) into x from mgandhi2.courses where course#=p_course# and dept_code=p_code;
+
+	if(x=0) then
+	raise Course_invalid;
+	
+	else
+		open c_dbuser for select dept_code , course#  from mgandhi2.prerequisites START WITH pre_dept_code||pre_course#=p_code||p_course# CONNECT BY PRIOR course#=pre_course#;
+
+
+	end if;
+
+
+ 
+exception 
+	when Course_invalid then
+	invalid_error:='The Course entered is invalid'; 
+end;
+
+
+
+END;
+/
+show errors
+
+
+
+
+
+
+
+/* SEQUENCE CREATION FOR LOGS TABLE*/
+
+
+Create sequence log_seq increment by 1 start with 1000;
+
+
+
+
+
+
+
+
+
+/*   TRIGGERS     */
+
+
+
+
+
+create or replace trigger Class_Update_After_Enrollment
+after insert or delete on mgandhi2.Enrollments
+for each row
+
+Begin
+	if inserting then
+	update mgandhi2.classes set class_size=class_size+1 where classid=:new.classid;
+
+
+	elsif deleting then
+	update mgandhi2.classes set class_size=class_size-1 where classid=:old.classid;
+	end if;
+end;
+
+/
+show errors
+
+CREATE OR REPLACE TRIGGER LogEntriesonstudents
+  AFTER INSERT OR UPDATE OR DELETE
+  ON students
+for each row
+DECLARE
+  log_action  mgandhi2.logs.operation%TYPE;
+keyvalue mgandhi2.enrollments.B#%type;
+BEGIN
+  IF INSERTING THEN
+    log_action := 'Insert';
+     keyvalue:=:new.B#;
+  ELSIF UPDATING THEN
+    log_action := 'Update';
+    keyvalue:=:old.B#;		
+  ELSIF DELETING THEN
+    log_action := 'Delete';
+    keyvalue:=:old.B#;
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('This code is not reachable.');
+  END IF;
+
+  insert into mgandhi2.logs VALUES (log_seq.nextval,user,SYSDATE,'students', log_action,keyvalue);
+END;
+/
+show errors
+
+
+
+
+
+CREATE OR REPLACE TRIGGER LogEntriesonenrollments
+  AFTER INSERT OR UPDATE OR DELETE
+  ON enrollments
+for each row
+DECLARE
+  log_action  mgandhi2.logs.operation%TYPE;
+keyvalue varchar2(100);
+BEGIN
+  IF INSERTING THEN
+    log_action := 'Insert';
+	keyvalue:=:new.B#||','||:new.classid;
+  ELSIF UPDATING THEN
+    log_action := 'Update';
+keyvalue:=:old.B#||','||:old.classid;
+  ELSIF DELETING THEN
+    log_action := 'Delete';
+keyvalue:=:old.B#||','||:old.classid;
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('This code is not reachable.');
+  END IF;
+
+  insert into mgandhi2.logs VALUES (log_seq.nextval,user,SYSDATE,'enrollments', log_action,keyvalue);
+END;
+/
+show errors
+
+create or replace trigger UpdateEnrollAfterSidDeleted
+before Delete on mgandhi2.Students
+for each row
+
+Begin
+	delete from mgandhi2.enrollments where B#=:old.B#;
+end;
+/
+show errors
+
+
+
