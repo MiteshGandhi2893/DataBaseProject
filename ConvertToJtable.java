@@ -13,66 +13,40 @@ import javax.swing.*;
  * @author Mitesh
  */
 public class ConvertToJtable {
-    
-    
-  
-    
-    
-    
-    
-    
+   
     public DefaultTableModel ConverttoTable(DefaultTableModel modeltable,ResultSet rs)
     {
-     try
-     {
+         try
+         {       
+            ResultSetMetaData rsmd=rs.getMetaData();
+            int col=rsmd.getColumnCount();
+            String columns[]=new String[col];
+            int colno=rsmd.getColumnCount();
+             
+            for(int i=0;i<col;i++)
+            columns[i]=rsmd.getColumnName(i+1);
+            modeltable.setColumnIdentifiers(columns);
        
-             ResultSetMetaData rsmd=rs.getMetaData();
-                int col=rsmd.getColumnCount();
-      String columns[]=new String[col];
-    for(int i=0;i<col;i++)
-        columns[i]=rsmd.getColumnName(i+1);
-    
-    
-    
-    
-       modeltable.setColumnIdentifiers(columns);
-
-       
-      for(int i=0;i<col;i++)
-      {
-          columns[i]=rsmd.getColumnName(i+1);
-      }
-       
-        
-        
-       
-        int colno=rsmd.getColumnCount();
-        while(rs.next())
-        {
-            Object []objects=new Object[colno];
-            for(int i=0;i<colno;i++)
+            for(int i=0;i<col;i++)
             {
-                objects[i]=rs.getObject(i+1);
+            columns[i]=rsmd.getColumnName(i+1);
             }
-            modeltable.addRow(objects);
-        }
-        
-  return modeltable;      
-        
-     }
-     catch(Exception ex)
-     {
-         ex.printStackTrace();
-     }
-        
-        
-        
+            while(rs.next())
+            {
+                Object []objects=new Object[colno];
+                for(int i=0;i<colno;i++)
+                {
+                    objects[i]=rs.getObject(i+1);
+                }
+                modeltable.addRow(objects);
+            }
+
+         }
+         catch(Exception ex)
+         {
+             ex.printStackTrace();
+         }
         return modeltable;
     }
-    
-    
-    
-    
-    
 }
 
